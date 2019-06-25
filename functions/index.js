@@ -6,60 +6,74 @@ const FieldValue = admin.firestore.FieldValue;
 
 const usersRef = admin.firestore().collection('users');
 
-const serverErrorMsg = 'Internal server error';
+// == null, if null or undefined
+// === null, if null 
+// != null, if not null or undefined
 
-exports.sendPartnerRequest = functions.https.onCall((data, context) => {
-    const hasPartnerMsg = 'receiver already has a partner';
-    const hasPendingPartnerReqMsg = 'receiver has a pending partner request';
+exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async (data, context) => {
+
+    if (context.auth == null) {
+        throw new functions.https.HttpsError('unauthenticated', 'not authenticated');
+    }
+
+    if (data == null || data.email == null) {
+        throw new functions.https.HttpsError('invalid-argument', 'receiver email is required');
+    }
+
+    // errors
+    const USER_NOT_FOUND = 'user-not-found';
+    const RECEIVER_ALREADY_HAS_PARTNER = 'receiver-already-has-partner';
+    const RECEIVER_HAS_PENDING_REQUEST = 'receiver-has-pending-request';
 
     const senderUid = context.auth.uid;
-    const senderName = context.auth.token.name || null;
-    const senderEmail = context.auth.token.email || null;
-    const senderUserRef = usersRef.doc(senderUid);
+    // todo: get name and email from auth instead of db
+    //const senderName = context.auth.token.name || '';
+    //const senderEmail = context.auth.token.email || '';
+    const senderRef = usersRef.doc(senderUid);
+    const senderDoc = await senderRef.get();
+    const senderEmail = senderDoc.data().email != null ? senderDoc.data().email : '';
+    const senderName = senderDoc.data().name != null ? senderDoc.data().name : '';
 
     const receiverEmail = data.email;
 
-    usersRef.where('email', '==', receiverEmail).get().then(snapshots => {
+    try {
+        let snapshots = await usersRef.where('email', '==', receiverEmail).get();
         if (snapshots.empty) {
             // no matching documents
-            throw new functions.https.HttpsError('not-found', 'there are no users with the provided email address');
+            throw new Error(USER_NOT_FOUND);
         }
 
-        const receiverUserRef = snapshots.docs[0].ref;
+        const receiverRef = snapshots.docs[0].ref;
 
-        admin.firestore().runTransaction(async t => {
-            const doc = await t.get(receiverUserRef);
+        await admin.firestore().runTransaction(async t => {
+            const doc = await t.get(receiverRef);
             const uid = doc.id;
-            const email = doc.get('email');
-            const name = doc.get('name') != null ? doc.get('name') : '';
-            const partner = doc.get('partner');
-            const partnerRequestFrom = doc.get('partnerRequestFrom');
-            const partnerRequestTo = doc.get('partnerRequestTo');
+            const email = doc.data().email != null ? doc.data().email : '';
+            const name = doc.data().name != null ? doc.data().name : '';
+            const partner = doc.data().partner;
+            const partnerRequestFrom = doc.data().partnerRequestFrom;
+            const partnerRequestTo = doc.data().partnerRequestTo;
 
             if (partner != null) {
-                Promise.reject(hasPartnerMsg);
-            } else if (partnerRequestFrom != null) {
-                Promise.reject(hasPendingPartnerReqMsg);
-            } else if (partnerRequestTo != null) {
-                Promise.reject(hasPendingPartnerReqMsg)
-            } else {
-                receiverUserRef.update({ partnerRequestFrom: { uid: senderUid, email: senderEmail, name: senderName } });
-                senderUserRef.update({ partnerRequestTo: { uid: uid, email: email, name: name } })
+                throw new Error(RECEIVER_ALREADY_HAS_PARTNER);
+            } else if (partnerRequestFrom != null || partnerRequestTo != null) {
+                throw new Error(RECEIVER_HAS_PENDING_REQUEST);
             }
-        }).then(() => {
-            throw new functions.https.HttpsError('ok', 'partner request sent');
-        }).catch(err => {
-            console.log('error while running transcation: ' + err);
-            if (err === hasPartnerMsg) {
-                throw new functions.https.HttpsError('already-exists', hasPartnerMsg);
-            } else if (err === hasPendingPartnerReqMsg) {
-                throw new functions.https.HttpsError('already-exists', hasPendingPartnerReqMsg);
-            } else {
-                throw new functions.https.HttpsError('internal');
-            }
+
+            t.update(receiverRef, { partnerRequestFrom: { uid: senderUid, email: senderEmail, name: senderName } });
+            t.update(senderRef, { partnerRequestTo: { uid: uid, email: email, name: name } })
         });
-    }).catch(err => {
-        console.log('error querying database: ' + err);
-        throw new functions.https.HttpsError('internal');
-    });
+    } catch (e) {
+        console.log(e);
+        if (e instanceof Error) {
+            if (e.message === USER_NOT_FOUND) {
+                throw new functions.https.HttpsError('not-found', 'there are no users with the provided email address');
+            } else if (e.message === RECEIVER_ALREADY_HAS_PARTNER) {
+                throw new functions.https.HttpsError('already-exists', 'receiver already has a partner');
+            } else if (e.message === RECEIVER_HAS_PENDING_REQUEST) {
+                throw new functions.https.HttpsError('already-exists', 'receiver has a pending partner request');
+            }
+        }
+        throw new functions.https.HttpsError('internal', 'internal');
+    }
 });
