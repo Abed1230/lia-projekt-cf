@@ -6,6 +6,13 @@ const FieldValue = admin.firestore.FieldValue;
 
 const usersRef = admin.firestore().collection('users');
 
+//errors
+const ERROR_NOT_AUTHENTICATED = 'ERROR_NOT_AUTHENTICATED';
+const ERROR_USER_NOT_FOUND = 'ERROR_USER_NOT_FOUND';
+const ERROR_RECEIVER_ALREADY_HAS_PARTNER = 'ERROR_RECEIVER_ALREADY_HAS_PARTNER';
+const ERROR_RECEIVER_HAS_PENDING_REQUEST = 'ERROR_RECEIVER_HAS_PENDING_REQUEST';
+const ERROR_RECEIVER_EMAIL_REQUIRED = 'ERROR_RECEIVER_EMAIL_REQUIRED';
+
 // == null, if null or undefined
 // === null, if null 
 // != null, if not null or undefined
@@ -13,17 +20,12 @@ const usersRef = admin.firestore().collection('users');
 exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async (data, context) => {
 
     if (context.auth == null) {
-        throw new functions.https.HttpsError('unauthenticated', 'not authenticated');
+        throw new functions.https.HttpsError('unauthenticated', ERROR_NOT_AUTHENTICATED);
     }
 
     if (data == null || data.email == null) {
-        throw new functions.https.HttpsError('invalid-argument', 'receiver email is required');
+        throw new functions.https.HttpsError('invalid-argument', ERROR_RECEIVER_EMAIL_REQUIRED);
     }
-
-    // errors
-    const USER_NOT_FOUND = 'user-not-found';
-    const RECEIVER_ALREADY_HAS_PARTNER = 'receiver-already-has-partner';
-    const RECEIVER_HAS_PENDING_REQUEST = 'receiver-has-pending-request';
 
     const senderUid = context.auth.uid;
     // todo: get name and email from auth instead of db
@@ -40,7 +42,7 @@ exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async
         let snapshots = await usersRef.where('email', '==', receiverEmail).get();
         if (snapshots.empty) {
             // no matching documents
-            throw new Error(USER_NOT_FOUND);
+            throw new Error(ERROR_USER_NOT_FOUND);
         }
 
         const receiverRef = snapshots.docs[0].ref;
@@ -55,9 +57,9 @@ exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async
             const partnerRequestTo = doc.data().partnerRequestTo;
 
             if (partner != null) {
-                throw new Error(RECEIVER_ALREADY_HAS_PARTNER);
+                throw new Error(ERROR_RECEIVER_ALREADY_HAS_PARTNER);
             } else if (partnerRequestFrom != null || partnerRequestTo != null) {
-                throw new Error(RECEIVER_HAS_PENDING_REQUEST);
+                throw new Error(ERROR_RECEIVER_HAS_PENDING_REQUEST);
             }
 
             t.update(receiverRef, { partnerRequestFrom: { uid: senderUid, email: senderEmail, name: senderName } });
@@ -66,14 +68,14 @@ exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async
     } catch (e) {
         console.log(e);
         if (e instanceof Error) {
-            if (e.message === USER_NOT_FOUND) {
-                throw new functions.https.HttpsError('not-found', 'there are no users with the provided email address');
-            } else if (e.message === RECEIVER_ALREADY_HAS_PARTNER) {
-                throw new functions.https.HttpsError('already-exists', 'receiver already has a partner');
-            } else if (e.message === RECEIVER_HAS_PENDING_REQUEST) {
-                throw new functions.https.HttpsError('already-exists', 'receiver has a pending partner request');
+            if (e.message === ERROR_USER_NOT_FOUND) {
+                throw new functions.https.HttpsError('not-found', ERROR_USER_NOT_FOUND);
+            } else if (e.message === ERROR_RECEIVER_ALREADY_HAS_PARTNER) {
+                throw new functions.https.HttpsError('already-exists', ERROR_RECEIVER_ALREADY_HAS_PARTNER);
+            } else if (e.message === ERROR_RECEIVER_HAS_PENDING_REQUEST) {
+                throw new functions.https.HttpsError('already-exists', ERROR_RECEIVER_HAS_PENDING_REQUEST);
             }
         }
-        throw new functions.https.HttpsError('internal', 'internal');
+        throw new functions.https.HttpsError('internal', 'INTERNAL');
     }
 });
