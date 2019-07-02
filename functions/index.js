@@ -7,6 +7,7 @@ const FieldValue = admin.firestore.FieldValue;
 const usersRef = admin.firestore().collection('users');
 
 //errors
+const ERROR_INTERNAL = 'ERROR_INTERNAL';
 const ERROR_NOT_AUTHENTICATED = 'ERROR_NOT_AUTHENTICATED';
 const ERROR_USER_NOT_FOUND = 'ERROR_USER_NOT_FOUND';
 const ERROR_RECEIVER_ALREADY_HAS_PARTNER = 'ERROR_RECEIVER_ALREADY_HAS_PARTNER';
@@ -16,6 +17,8 @@ const ERROR_RECEIVER_EMAIL_REQUIRED = 'ERROR_RECEIVER_EMAIL_REQUIRED';
 // == null, if null or undefined
 // === null, if null 
 // != null, if not null or undefined
+
+// important todo: when deleting user doc, make sure to delete any active partner requests first
 
 exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async (data, context) => {
 
@@ -28,11 +31,11 @@ exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async
     }
 
     const senderUid = context.auth.uid;
+    const senderRef = usersRef.doc(senderUid);
+    const senderDoc = await senderRef.get();
     // todo: get name and email from auth instead of db
     //const senderName = context.auth.token.name || '';
     //const senderEmail = context.auth.token.email || '';
-    const senderRef = usersRef.doc(senderUid);
-    const senderDoc = await senderRef.get();
     const senderEmail = senderDoc.data().email != null ? senderDoc.data().email : '';
     const senderName = senderDoc.data().name != null ? senderDoc.data().name : '';
 
@@ -76,6 +79,29 @@ exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async
                 throw new functions.https.HttpsError('already-exists', ERROR_RECEIVER_HAS_PENDING_REQUEST);
             }
         }
-        throw new functions.https.HttpsError('internal', 'INTERNAL');
+        throw new functions.https.HttpsError('internal', ERROR_INTERNAL);
+    }
+});
+
+exports.cancelPartnerRequest = functions.region('europe-west1').https.onCall(async (data, context) => {
+
+    if (context.auth == null) {
+        throw new functions.https.HttpsError('unauthenticated', ERROR_NOT_AUTHENTICATED);
+    }
+
+    const senderUid = context.auth.uid;
+    const senderRef = usersRef.doc(senderUid);
+
+    try {
+        await admin.firestore().runTransaction(async t => {
+            const doc = await t.get(senderRef);
+            const receiver = doc.data().partnerRequestTo;
+            const receiverRef = usersRef.doc(receiver.uid);
+
+            t.update(receiverRef, { partnerRequestFrom: FieldValue.delete() });
+            t.update(senderRef, { partnerRequestTo: FieldValue.delete() });
+        });
+    } catch (e) {
+        throw new functions.https.HttpsError('internal', ERROR_INTERNAL);
     }
 });
