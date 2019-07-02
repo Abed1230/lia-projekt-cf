@@ -105,3 +105,31 @@ exports.cancelPartnerRequest = functions.region('europe-west1').https.onCall(asy
         throw new functions.https.HttpsError('internal', ERROR_INTERNAL);
     }
 });
+
+exports.acceptPartnerRequest = functions.region('europe-west1').https.onCall(async (data, context) => {
+
+    if (context.auth == null) {
+        throw new functions.https.HttpsError('unauthenticated', ERROR_NOT_AUTHENTICATED);
+    }
+
+    const receiverUid = context.auth.uid;
+    const receiverRef = usersRef.doc(receiverUid);
+
+    try {
+        await admin.firestore().runTransaction(async t => {
+            const receiverDoc = await t.get(receiverRef);
+            const receiverName = receiverDoc.data().name != null ? receiverDoc.data().name : '';
+            const sender = receiverDoc.data().partnerRequestFrom;
+            const senderRef = usersRef.doc(sender.uid);
+
+            t.update(receiverRef, { partner: { uid: sender.uid, name: sender.name } });
+            t.update(senderRef, { partner: { uid: receiverUid, name: receiverName } });
+            
+            // delete requests
+            t.update(receiverRef, { partnerRequestFrom: FieldValue.delete() });
+            t.update(senderRef, { partnerRequestTo: FieldValue.delete() });
+        });
+    } catch (e) {
+        throw new functions.https.HttpsError('internal', ERROR_INTERNAL);
+    }
+});
