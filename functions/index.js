@@ -13,6 +13,7 @@ const ERROR_USER_NOT_FOUND = 'ERROR_USER_NOT_FOUND';
 const ERROR_RECEIVER_ALREADY_HAS_PARTNER = 'ERROR_RECEIVER_ALREADY_HAS_PARTNER';
 const ERROR_RECEIVER_HAS_PENDING_REQUEST = 'ERROR_RECEIVER_HAS_PENDING_REQUEST';
 const ERROR_RECEIVER_EMAIL_REQUIRED = 'ERROR_RECEIVER_EMAIL_REQUIRED';
+const ERROR_RECEIVER_EMAIL_IS_SENDERS = 'ERROR_RECEIVER_EMAIL_IS_SENDERS';
 
 // == null, if null or undefined
 // === null, if null 
@@ -28,6 +29,10 @@ exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async
 
     if (data == null || data.email == null) {
         throw new functions.https.HttpsError('invalid-argument', ERROR_RECEIVER_EMAIL_REQUIRED);
+    }
+
+    if (data.email === context.auth.token.email) {
+        throw new functions.https.HttpsError('invalid-argument', ERROR_RECEIVER_EMAIL_IS_SENDERS);
     }
 
     const senderUid = context.auth.uid;
