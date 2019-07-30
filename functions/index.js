@@ -5,6 +5,7 @@ admin.initializeApp();
 const FieldValue = admin.firestore.FieldValue;
 
 const usersRef = admin.firestore().collection('users');
+const couplesRef = admin.firestore().collection('couples');
 
 //errors
 const ERROR_INTERNAL = 'ERROR_INTERNAL';
@@ -127,12 +128,18 @@ exports.acceptPartnerRequest = functions.region('europe-west1').https.onCall(asy
             const sender = receiverDoc.data().partnerRequestFrom;
             const senderRef = usersRef.doc(sender.uid);
 
-            t.update(receiverRef, { partner: { uid: sender.uid, name: sender.name } });
-            t.update(senderRef, { partner: { uid: receiverUid, name: receiverName } });
+            // create couple data document in Couples collection
+            const coupleDataDoc = couplesRef.doc();
+            t.set(coupleDataDoc, {user1 : sender.uid, user2 : receiverUid});
+            
+            // add partner info and add reference to the created couple data doc
+            t.update(receiverRef, { partner: { uid: sender.uid, name: sender.name }, coupleDataRef : coupleDataDoc });
+            t.update(senderRef, { partner: { uid: receiverUid, name: receiverName }, coupleDataRef : coupleDataDoc });
             
             // delete requests
             t.update(receiverRef, { partnerRequestFrom: FieldValue.delete() });
             t.update(senderRef, { partnerRequestTo: FieldValue.delete() });
+
         });
     } catch (e) {
         throw new functions.https.HttpsError('internal', ERROR_INTERNAL);
