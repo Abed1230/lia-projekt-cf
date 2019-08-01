@@ -1,5 +1,6 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+
 admin.initializeApp();
 
 const FieldValue = admin.firestore.FieldValue;
@@ -16,11 +17,7 @@ const ERROR_RECEIVER_HAS_PENDING_REQUEST = 'ERROR_RECEIVER_HAS_PENDING_REQUEST';
 const ERROR_RECEIVER_EMAIL_REQUIRED = 'ERROR_RECEIVER_EMAIL_REQUIRED';
 const ERROR_RECEIVER_EMAIL_IS_SENDERS = 'ERROR_RECEIVER_EMAIL_IS_SENDERS';
 
-// == null, if null or undefined
-// === null, if null 
-// != null, if not null or undefined
-
-// important todo: when deleting user doc, make sure to delete any active partner requests first
+// TODO: when deleting user doc make sure to delete any active partner requests first
 
 exports.sendPartnerRequest = functions.region('europe-west1').https.onCall(async (data, context) => {
 
@@ -130,7 +127,7 @@ exports.acceptPartnerRequest = functions.region('europe-west1').https.onCall(asy
 
             // create couple data document in Couples collection
             const coupleDataDoc = couplesRef.doc();
-            t.set(coupleDataDoc, {user1 : sender.uid, user2 : receiverUid});
+            t.set(coupleDataDoc, {owners: {[receiverUid]: true, [sender.uid]: true}});
             
             // add partner info and add reference to the created couple data doc
             t.update(receiverRef, { partner: { uid: sender.uid, name: sender.name }, coupleDataRef : coupleDataDoc });
